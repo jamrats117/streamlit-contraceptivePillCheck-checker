@@ -1,14 +1,49 @@
 import streamlit as st
 import gspread
+import pandas as pd
 from google.oauth2.service_account import Credentials
 
-st.set_page_config(page_title="DDI Checker", page_icon="💊")
-st.title("💊 DDI Checker from Google Sheet")
+# ---------- PAGE CONFIG ----------
+st.set_page_config(
+    page_title="ตารางข้อมูลยาคุมกำเนิด",
+    page_icon="💊",
+    layout="wide",
+)
+
+# ---------- PASTEL THEME ----------
+pastel_css = """
+<style>
+body {
+    background-color: #fff7fb;
+}
+.main {
+    background-color: #fffafd;
+}
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+h1 {
+    color: #8b5cf6;
+}
+.table-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #6b7280;
+    margin-bottom: 0.5rem;
+}
+</style>
+"""
+st.markdown(pastel_css, unsafe_allow_html=True)
+
+st.title("💊 ตารางข้อมูลยาคุมกำเนิด")
+
+st.write("ข้อมูลดึงจาก Google Sheet ชีต `drug` โดยแสดงเฉพาะคอลัมน์สำคัญในธีมพาสเทล")
 
 # ---------- CONNECT TO GOOGLE SHEET ----------
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 creds = Credentials.from_service_account_info(
@@ -19,36 +54,55 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 
 sheet_id = st.secrets["SHEET_ID"]
+sheet_name = st.secrets.get("SHEET_NAME", "drug")
+
 sh = gc.open_by_key(sheet_id)
-ws = sh.sheet1
+ws = sh.worksheet(sheet_name)
 
-data = ws.get_all_records()
+rows = ws.get_all_records()  # list of dict
 
-st.subheader("Preview data from Google Sheet")
-st.write(data)
+# ---------- TO DATAFRAME & RENAME COLUMNS ----------
+df = pd.DataFrame(rows)
 
-# ---------- BASIC UI ----------
-drug1 = st.text_input("Drug 1")
-drug2 = st.text_input("Drug 2")
+# ชื่อคอลัมน์ในชีต (ภาษาอังกฤษ) → ชื่อที่แสดง (ภาษาไทย)
+col_map = {
+    "trade name": "ชื่อการค้า (Trade Name)",
+    "tablets": "จำนวนเม็ด",
+    "group": "กลุ่มยา",
+    "compound": "ส่วนประกอบ (Compound)",
+    "How to take medicine": "วิธีรับประทาน",
+}
 
-def check_ddi(d1, d2):
-    d1 = d1.lower().strip()
-    d2 = d2.lower().strip()
-    results = []
-    for row in data:
-        a = str(row.get("drug1", "")).lower()
-        b = str(row.get("drug2", "")).lower()
-        if (a == d1 and b == d2) or (a == d2 and b == d1):
-            results.append(row)
-    return results
+# normalize ให้ชื่อคอลัมน์ตรงกับ key ใน col_map
+df.columns = [c.strip() for c in df.columns]
 
-if st.button("Check DDI"):
-    if not drug1 or not drug2:
-        st.warning("กรุณากรอกชื่อยาให้ครบ")
-    else:
-        hits = check_ddi(drug1, drug2)
-        if hits:
-            st.error("พบ Interaction")
-            st.write(hits)
-        else:
-            st.success("ไม่พบ Interaction")
+selected_cols = []
+new_col_names = []
+for eng, th in col_map.items():
+    if eng in df.columns:
+        selected_cols.append(eng)
+        new_col_names.append(th)
+
+df_view = df[selected_cols].copy()
+df_view.columns = new_col_names
+
+# ---------- FILTER UI ----------
+st.markdown('<p class="table-title">ค้นหายาคุมจากชื่อการค้า หรือกรองตามกลุ่มยา</p>', unsafe_allow_html=True)
+
+c1, c2 = st.columns(2)
+with c1:
+    keyword = st.text_input("🔍 ค้นหาจากชื่อการค้า (เช่น Mercilon, Yasmin)", "")
+with c2:
+    group_filter = st.text_input("🔍 ค้นหาจากกลุ่มยา (เช่น COC, POP)", "")
+
+filtered = df_view.copy()
+if keyword:
+    filtered = filtered[filtered["ชื่อการค้า (Trade Name)"].str.contains(keyword, case=False, na=False)]
+if group_filter:
+    filtered = filtered[filtered["กลุ่มยา"].str.contains(group_filter, case=False, na=False)]
+
+st.dataframe(
+    filtered,
+    use_container_width=True,
+    hide_index=True,
+)
