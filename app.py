@@ -46,15 +46,18 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
+cfg = st.secrets["gcp_service_account"]
+
 creds = Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
+    cfg,
     scopes=SCOPES,
 )
 
 gc = gspread.authorize(creds)
 
-sheet_id = st.secrets["SHEET_ID"]
-sheet_name = st.secrets.get("SHEET_NAME", "drug")
+sheet_id = cfg["SHEET_ID"]
+sheet_name = cfg.get("SHEET_NAME", "drug")
+
 
 sh = gc.open_by_key(sheet_id)
 ws = sh.worksheet(sheet_name)
